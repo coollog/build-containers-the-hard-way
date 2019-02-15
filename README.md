@@ -90,5 +90,41 @@ This runs the container and forwards the port to `localhost:8000`. If you had, s
 
 Another common Dockerfile instruction is `RUN <command>`, which executes the `<command>` using whichever shell is present in the container, creating a new container following the result of executing that command.
 
+### Advanced Docker Builds
 
+Docker has its own caching mechanism that helps Dockerfile-based builds run faster. Essentially, Docker caches the container image generated after each Dockerfile step. If it determines that a step has not changed, it will use the container image cached for that step rather than run that step again. However, if a step changes, it will invalidate the cache for that step and all steps afterwards. The way the caching mechanism works in Docker merits some tips for writing a more efficient Dockerfile.
+
+#### Frequently changing steps go last
+
+Dockerfile builds can take quite a while, especially with heavy steps that download dependencies or compile your application. Since any step that changes invalidates steps afterwards, better Dockerfiles tend to place more frequently-changing steps last. Heavy steps that do not change much tend to be front-loaded so that subsequent builds can just use the cached result.
+
+#### **Keep the number of steps minimal**
+
+Since each step generates a separate cached container image, steps should be kept minimal to reduce the number of layers \(each cached step has its own overhead\). For example, a group of `RUN`s can usually be combined:
+
+_Bad:_
+
+```
+RUN mkdir mydirectory
+RUN touch mydirectory/myexecutable
+RUN chmod +x mydirectory/myexecutable
+```
+
+_Better:_
+
+```text
+RUN mkdir mydirectory && \
+    touch mydirectory/myexecutable && \
+    chmod +x mydirectory/myexecutable
+```
+
+However, frequently-changing steps should not be combined with infrequently-changing heavy steps - rather, an efficient Dockerfile should try to separate these as much as possible to avoid running infrequently-changing steps.
+
+#### **Use multistage builds for more flexibility than just a linear Dockerfile build**
+
+_TODO_
+
+\_\_
+
+\*\*\*\*
 

@@ -160,3 +160,106 @@ Note that all runtime configuration in the container configuration exist as defa
 
 > TODO: Show example container configuration and running with Docker/Kubernetes and effective runtime configuration
 
+There are two other parts of the container configuration: the `rootfs` object and the `history` array. Both contain metadata about the layers that make up the container file system.
+
+The `rootfs` contains a list of _diff IDs_. A diff ID for a layer is the digest \(usually SHA256 hash\) of the **uncompressed** tarball archive containing the files for that layer. Note that this is different from the descriptor digest, which is a hash of the compressed archive. The `rootfs` defines a list of these diff IDs in the order in which the layers belong in the container overlay file system, from first to last. Note that these layers must match those defined in the _manifest_.
+
+### Manifest
+
+A container image _manifest_ describes the components that make up a container image. Manifests come in multiple forms. These forms include the registry manifest formats such as _Docker Image Manifest V 2, Schema 2_ and _OCI Image Manifest_, as well as manifest formats that the Docker toolchain uses to save and load images stored locally.
+
+The main information in a manifest are the components that make up a container image. These components include the layers and the container configuration.
+
+#### `docker load` format
+
+`docker load` can load a container image stored as a tarball archive into the Docker local repository store. This tarball archive includes the compressed tarball archives for all the layers, the container configuration JSON file, and the manifest JSON file \(must be named `manifest.json`\). Here’s example of the manifest JSON file:
+
+```javascript
+[
+  {
+    "Config":"config.json",
+    "RepoTags":["myimage"]
+    "Layers": [
+      "layer1.tar.gz",
+      "layer2.tar.gz",
+      "layer3.tar.gz"
+    ]
+  }
+]
+```
+
+> TODO: Add citation for [https://github.com/moby/moby/blob/master/image/tarexport/load.go](https://github.com/moby/moby/blob/master/image/tarexport/load.go#L55)
+
+When Docker loads this image tarball, Docker finds this `manifest.json` and reads it. The manifest tells Docker to load the container configuration from the `config.json` file and load the layers from `layer1.tar.gz`, `layer2.tar.gz`, and `layer3.tar.gz`, in that order. Note that this order must match the order of the layers defined in the container configuration under `rootfs`. The `RepoTags` here tells Docker to "tag" the image with the name `myimage`. Note that "tag" is a confusing term here since it refers to the full reference for the image, whereas "tag" in an actual image reference refers to a label for an image stored under a repository.
+
+#### **`docker save` format**
+
+`docker save` can also save images in a legacy Docker tarball archive that `docker load` also supports. In this legacy format, each layer would be stored in its own directory named with its SHA256 hash \(digest of compressed layer tarball archive\). Each of these directories contains a `json` file with a legacy container configuration \(we won’t go into the details of this\), a `VERSION` file, and a `layer.tar` that is the uncompressed tarball archive of the layer contents.
+
+#### **Registry format - Docker Image Manifest V 2, Schema 2**
+
+Registry image manifests define the components that make up an image on a container registry \(see section on container registries\). The more common manifest format we’ll be working with is the _Docker Image Manifest V2, Schema 2_ \(more simply, _V2.2_\). There is also a _V2, Schema 1_ format that is commonly used but more complicated than V2.2 due to backwards-compatibility reasons against V1.
+
+The V2.2 manifest format is a JSON blob with the following top-level fields:
+
+`schemaVersion`  - `2` in this case
+
+`mediaType`  - `application/vnd.docker.distribution.manifest.v2+json`
+
+`config`  - _descriptor_ of container configuration blob
+
+`layers`  - list of descriptors of layer blobs, in the same order as the `rootfs` of the container configuration
+
+Blob _descriptors_ are JSON objects containing 3 fields:
+
+`mediaType`  - `application/vnd.docker.container.image.v1+json` for a container configuration or `application/vnd.docker.image.rootfs.diff.tar.gzip` for a layer
+
+`size`  - the size of the blob, in bytes
+
+`digest`  - the digest of the content
+
+Here is an example of a V2.2 manifest format \(for the Docker Hub [`busybox`](https://hub.docker.com/_/busybox) image\):
+
+```javascript
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "config": {
+    "mediaType": "application/vnd.docker.container.image.v1+json",
+    "size": 1497,
+    "digest": "sha256:3a093384ac306cbac30b67f1585e12b30ab1a899374dabc3170b9bca246f1444"
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size": 755724,
+      "digest": "sha256:57c14dd66db0390dbf6da578421c077f6de8e88edd0815b4caa94607ba5f4c09"
+    }
+  ]
+}
+```
+
+This manifest states that the `busybox` image is composed of a container configuration stored as a blob with digest `sha256:3a093384ac306cbac30b67f1585e12b30ab1a899374dabc3170b9bca246f1444` and a single layer blob with digest `sha256:57c14dd66db0390dbf6da578421c077f6de8e88edd0815b4caa94607ba5f4c09`. Note that manifests simply contain references. The actual blob content is stored elsewhere and would need to be fetched and provided to a container runtime when running the image as a container.
+
+#### **Registry format - OCI Image Manifest**
+
+The OCI image manifest is also a registry image manifest that defines components that make up an image. The format is essentially the same as the Docker V2.2 format, with a few differences.
+
+`mediaType`  **-** must be set to `application/vnd.oci.image.manifest.v1+json`
+
+`config.mediaType`  - must be set to `application/vnd.oci.image.config.v1+json`
+
+Each object in `layers` must have `mediaType` be either `application/vnd.oci.image.layer.v1.tar+gzip` or `application/vnd.oci.image.layer.v1.tar`. Note that OCI allows for layer blobs to be not compressed with GZIP with the `application/vnd.oci.image.layer.v1.tar` `mediaType`.
+
+#### **Manifest List/Image Index**
+
+A _manifest list_ \(or _image index_ in OCI terms\) is a way to specify multiple manifests for a single image. Each manifest is associated with a specific platform \(operating system and architecture\) so that a container runtime can choose the appropriate manifest to use for the platform it is running on. Manifest lists are fairly uncommon and we will not go into details about them. See official documentation for more information about a [manifest list ](https://docs.docker.com/registry/spec/manifest-v2-2/#manifest-list) or [image index](https://github.com/opencontainers/image-spec/blob/master/image-index.md).
+
+### Let’s explore a Docker image with docker
+
+> TODO
+
+## **Container image registry**
+
+\*\*\*\*
+

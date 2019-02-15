@@ -1,6 +1,15 @@
-# Initial page
+---
+description: >-
+  *Like [Kubernetes the Hard
+  Way](https://github.com/kelseyhightower/kubernetes-the-hard-way), but for
+  building containers.*
+---
 
-## Getting Super Powers
+# Building Containers the Hard Way
+
+This guide is geared towards anyone interested in learning the low-level details regarding how to build containers. This guide is not intended for those who wish to learn to build container images with high-level tools like Docker.
+
+At the end of this guide, you should understand the internals of a container image, how to construct a container image, and how to push a container image to a Docker container registry piece-by-piece.
 
 Becoming a super hero is a fairly straight forward process:
 

@@ -1,4 +1,4 @@
-# Build Containers the Hard Way
+# Build Containers the Hard Way \(DRAFT\)
 
 _Like_ [_Kubernetes the Hard Way_](https://github.com/kelseyhightower/kubernetes-the-hard-way)_, but for building containers._
 

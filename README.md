@@ -261,5 +261,83 @@ A _manifest list_ \(or _image index_ in OCI terms\) is a way to specify multiple
 
 ## **Container image registry**
 
-\*\*\*\*
+In order for a container orchestration system like Kubernetes to run container imgaes, it needs to pull the container imges from some container image repository. This is where container image registries come in. Container image registries store container images to be served via specific addresses called **image references**. These registries are usually blob stores that store the container image layers in separate blobs. They also store manifests that describe which blobs make up a specific image. The most common container image registry is the Docker Registry V2, which is a API specification for a registry server. Some examples of image registries include Docker Hub \(the default image registry for Docker\), Google Container Registry \(GCR\), AWS Elastic Container Registry \(ECR\), Microsoft Azure Container Registry \(ACR\), [Harbor](https://github.com/goharbor/harbor), [JFrog Artifactory](https://www.jfrog.com/confluence/display/RTF/Getting+Started+with+Artifactory+as+a+Docker+Registry), [Quay](https://quay.io/), and [Sonatype Nexus](https://help.sonatype.com/repomanager3/private-registry-for-docker).
+
+We will go over the details of _Docker Registry API V2_ \(we’ll just refer to it as the _Registry API_\), since most container registries implement that specification. For the full specification details, read the [Docker Registry HTTP API V2 spec](https://docs.docker.com/registry/spec/api/).
+
+### **How a registry stores an image**
+
+Although the specific implementation details are undefined and differ between each implementation of the Registry API, conceptually, the registry can be thought of as a blob store that can have blobs pushed to and pulled from the registry. The Registry API works with the Docker/OCI Image Format, so the blobs would be the layers and the container configurations. The manifests are not referred to as blobs, but rather are the artifacts that actually represent an image \(by listing its component blobs\).
+
+![Topology of a registry](.gitbook/assets/build-containers-the-hard-way-section-drafts.png)
+
+The diagram shows the topology of a registry. A registry contains multiple repositories containing images. Each repository contains a set of blobs. An “image” is actually a manifest that refers to a sequence of blobs that make up the image. Tags are labels used to name manifests. A tag can only point to a single manifest but multiple tags can point to the same manifest.
+
+### Image reference
+
+An image is identified by an image reference. This image reference provides a human-readable way to address images and is composed of a few components:
+
+* _Registry_ - The URL to reach the registry server. By default, this registry would be Docker Hub \(`registry.hub.docker.com`\).
+* _Repository_ - Also known as the _namespace_, repositories help organize images into their own “directories” on the registry. Authentication applies on a per-repository basis. When the registry is Docker Hub, the default repository prefix for a single-level repository is `library`.
+* _Tag_ - Each image within a repository is addressable by the digest of its manifest. However, digests can be difficult to manage and is not human-friendly. Tags can be set to point to specific digests to more conveniently identify specific images. These tags can also be reassigned to different digests as well. A specific image can also have multiple tags pointing to it. Each new manifest must go under a specific tag and the default tag is `latest`.
+
+For example, consider the following image reference: `openjdk:8-jre-alpine`
+
+* Since there is no registry URL specified, the registry is by default Docker Hub. The repository component is specified as `openjdk`. Since the repository is only a single level and the registry is Docker Hub, the repository is actually resolved as [library/openjdk](https://hub.docker.com/_/openjdk). The tag component is specified after a colon. In this example, the tag is `8-jre-alpine`. Although this tag is arbitrarily-defined, the maintainers of this repository chose to convey some information about the image through this tag. Here, this tag says that the specific image contains OpenJDK 8 with just the JRE \(Java Runtime Environment\) and Alpine \(a tiny Linux distribution\). Some other tags in the repository refer to the same image but contain more specific information, like `8u191-jre-alpine3.9`. Other tags may be less specific, like `jre`, which, at the time of writing, refers to an OpenJDK 11 image with the JRE and Debian Stretch. This tag will most likely move to refer to newer OpenJDK versions as they become GA. The latest tag also refers to the latest stable, default image the maintainers believes users will find useful in most cases and will move the tag as new versions become stable. There are some general tips and best practices for managing tags for a repository. 
+
+> TODO: Maybe explain some tips?
+
+Consider another image reference: `gcr.io/my-gcp-project/my-awesome-app/message-service:v1.2.3`
+
+* The registry URL here is `gcr.io`, which is the server URL for Google Container Registry. The repository is `my-gcp-project/my-awesome-app/message-service`, which in GCR, means that the repository is on the `my-gcp-project` Google Cloud Platform project and under a `my-awesome-app/message-service` Google Cloud Storage subdirectory. The tag is `v1.2.3`, which is used to identify the version of the `message-service` this container image contains.
+
+An image can also be referred to by its specific image digest: `gcr.io/distroless/java@sha256:0430beea631408faa266e5d98d9c5dcc3c5f02c3ebc27a65d72bd281e3576097`.
+
+There are also specific acceptable patterns for each component. The full regex can be found in the [Docker distribution code](https://github.com/docker/distribution/blob/master/reference/reference.go). For a brief summary:
+
+* Registry - can be a standard DNS hostname \(no protocol\) with an optional port number
+* Repository - slash-separated components that contain lowercase letters and digits separated by period, one or two underscores, or one or more dashes
+* Tag - any of letters, digits, underscores, periods, and dashes for a maximum of 128 characters
+
+Note that "tag" is a confusing name in Docker terminology since when using the local `docker` CLI tool, "tag" also refers to a label given to an image on the Docker daemon. For example, you might build an image called `myimage` with:
+
+```bash
+$ docker build -t myimage .
+...
+Successfully built 4e905a76595b
+Successfully tagged myimage:latest
+```
+
+Docker uses the current directory as the context and builds an image with an image ID `4e905a76595b`. This image ID is a shortened SHA256 digest of the built container configuration. Docker then "tags" the `4e905a76595b` with a label `myimage`, which can be used to refer to the same image with future `docker` commands rather than using `4e905a76595b` all the time. However, when you want to build and push an image to a registry, you would "tag" the image with the full image reference:
+
+```bash
+$ docker build -t gcr.io/my-gcp-project/myimage:v1 .
+...
+Successfully built 4e905a76595b
+Successfully tagged gcr.io/my-gcp-project/myimage:v1
+$ docker push gcr.io/my-gcp-project/myimage:v1
+```
+
+Here, Docker "tags" the image with `gcr.io/my-gcp-project/myimage:v1` to be used in later docker commands, but `gcr.io/my-gcp-project/myimage:v1` is actually an image reference with its tag as `v1`.
+
+### Pulling an image
+
+Pulling an image involves two steps:
+
+1. Pull the manifest.
+2. Pull the blobs in the manifest.
+
+#### Pull the manifest
+
+To pull the manifest, send a request to:
+
+```text
+GET /v2/<repository>/manifests/<tag or digest>
+```
+
+For example, to get the manifest for `openjdk`, the endpoint would be `https://registry.hub.docker.com/v2/library/openjdk/manifests/latest`.
+
+Headers to send include `Authorization` \(explained in the Token Authentication section\) and `Accept`. For example, if you want to only accept and parse manifests for Docker Image Format V2 Schema 2, you would want to set `Accept: application/vnd.docker.distribution.manifest.v2+json`.
+
+
 

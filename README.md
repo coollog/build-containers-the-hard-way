@@ -170,11 +170,13 @@ In the image format, BLOBs \(such as the layer archives\) are identified by thei
 
 ### Container configuration
 
-The metadata for a container image is represented by its container configuration. This container configuration contains mainly information about how the container should be run. This includes fields such as for architecture \(GOARCH\) and OS \(GOOS\), exposed ports, volume mounts, and environment variables.
+The metadata for a container image is contained its container configuration. This container configuration contains mainly information about how the container should be run. This includes fields such as for architecture and OS \([GOARCH/GOOS](https://golang.org/doc/install/source#environment)\), exposed ports, volume mounts, and environment variables.
 
-The most important of the runtime configuration found in the container configuration is the entrypoint, which is the command that is run when the container is run. This essentially defines the entrypoint process the container is isolating.
+The most important of the run-time configuration found in the container configuration is the entrypoint, which is the command that is run when the container is run. This essentially defines the entrypoint process the container is isolating.
 
-Note that all runtime configuration in the container configuration exist as defaults. When actually running the container either with Docker or with Kubernetes, any/all of these runtime configuration can be overridden.
+{% hint style="info" %}
+Note that all run-time configuration in the container configuration exist as defaults. When actually running the container either with Docker or with Kubernetes, any/all of these run-time configurations can be overridden.
+{% endhint %}
 
 > TODO: Might want to talk about reasonings for burning runtime config into an image vs. defining in a runtime spec
 
@@ -182,7 +184,7 @@ Note that all runtime configuration in the container configuration exist as defa
 
 There are two other parts of the container configuration: the `rootfs` object and the `history` array. Both contain metadata about the layers that make up the container file system.
 
-The `rootfs` contains a list of _diff IDs_. A diff ID for a layer is the digest \(usually SHA256 hash\) of the **uncompressed** tarball archive containing the files for that layer. Note that this is different from the descriptor digest, which is a hash of the compressed archive. The `rootfs` defines a list of these diff IDs in the order in which the layers belong in the container overlay file system, from first to last. Note that these layers must match those defined in the _manifest_.
+The `rootfs` contains a list of _diff IDs_. A diff ID for a layer is the digest \(usually SHA256 hash\) of the **uncompressed** tarball archive containing the files for that layer. Note that this is different from a layer's descriptor digest, which is a hash of the compressed archive. The `rootfs` defines a list of these diff IDs in the order in which the layers belong in the container overlay file system, from first to last. Note that these layers must match those defined in the _manifest_.
 
 ### Manifest
 
@@ -192,7 +194,7 @@ The main information in a manifest are the components that make up a container i
 
 #### `docker load` format
 
-`docker load` can load a container image stored as a tarball archive into the Docker local repository store. This tarball archive includes the compressed tarball archives for all the layers, the container configuration JSON file, and the manifest JSON file \(must be named `manifest.json`\). Here’s example of the manifest JSON file:
+`docker load` can load a container image stored as a tarball archive into the Docker local repository store. This tarball archive includes the compressed tarball archives for all the layers, the container configuration JSON file, and the manifest JSON file \(must be named `manifest.json`\). Here’s an example of the manifest JSON file:
 
 ```javascript
 [
@@ -208,13 +210,19 @@ The main information in a manifest are the components that make up a container i
 ]
 ```
 
-> TODO: Add citation for [https://github.com/moby/moby/blob/master/image/tarexport/load.go](https://github.com/moby/moby/blob/master/image/tarexport/load.go#L55)
+{% hint style="info" %}
+The reference for this format can be found in the Docker codebase: [https://github.com/moby/moby/blob/master/image/tarexport/load.go](https://github.com/moby/moby/blob/master/image/tarexport/load.go)
+{% endhint %}
 
-When Docker loads this image tarball, Docker finds this `manifest.json` and reads it. The manifest tells Docker to load the container configuration from the `config.json` file and load the layers from `layer1.tar.gz`, `layer2.tar.gz`, and `layer3.tar.gz`, in that order. Note that this order must match the order of the layers defined in the container configuration under `rootfs`. The `RepoTags` here tells Docker to "tag" the image with the name `myimage`. Note that "tag" is a confusing term here since it refers to the full reference for the image, whereas "tag" in an actual image reference refers to a label for an image stored under a repository.
+When Docker loads this image tarball, Docker finds this `manifest.json` and reads it. The manifest tells Docker to load the container configuration from the `config.json` file and load the layers from `layer1.tar.gz`, `layer2.tar.gz`, and `layer3.tar.gz`, in that order. Note that this order must match the order of the layers defined in the container configuration under `rootfs`. The `RepoTags` here tells Docker to "tag" the image with the name `myimage`.
+
+{% hint style="warning" %}
+Note that "tag" is a confusing term here since it refers to the full reference for the image, whereas "tag" in an actual image reference refers to a label for an image stored under a repository.
+{% endhint %}
 
 #### **`docker save` format**
 
-`docker save` can also save images in a legacy Docker tarball archive that `docker load` also supports. In this legacy format, each layer would be stored in its own directory named with its SHA256 hash \(digest of compressed layer tarball archive\). Each of these directories contains a `json` file with a legacy container configuration \(we won’t go into the details of this\), a `VERSION` file, and a `layer.tar` that is the uncompressed tarball archive of the layer contents.
+`docker save` can also save images in a legacy Docker tarball archive format that `docker load` also supports. In this legacy format, each layer would be stored in its own directory named with its SHA256 hash \(digest of compressed layer tarball archive\). Each of these directories contains a `json` file with a legacy container configuration \(we won’t go into the details of this\), a `VERSION` file, and a `layer.tar` that is the uncompressed tarball archive of the layer contents.
 
 #### **Registry format - Docker Image Manifest V 2, Schema 2**
 
@@ -259,7 +267,11 @@ Here is an example of a V2.2 manifest format \(for the Docker Hub [`busybox`](ht
 }
 ```
 
-This manifest states that the `busybox` image is composed of a container configuration stored as a blob with digest `sha256:3a093384ac306cbac30b67f1585e12b30ab1a899374dabc3170b9bca246f1444` and a single layer blob with digest `sha256:57c14dd66db0390dbf6da578421c077f6de8e88edd0815b4caa94607ba5f4c09`. Note that manifests simply contain references. The actual blob content is stored elsewhere and would need to be fetched and provided to a container runtime when running the image as a container.
+This manifest states that the `busybox` image is composed of a container configuration stored as a blob with digest `sha256:3a093384…` and a single layer blob with digest `sha256:57c14dd6…`. Note that manifests simply contain references. The actual blob content is stored elsewhere and would need to be fetched and provided to a container run-time when running the image as a container.
+
+{% hint style="warning" %}
+It is important to make sure that the digest used in the descriptor for a layer is the digest of the **compressed** archive, whereas the digest used for the diff ID in the `rootfs` of the container configuration is the digest of the same archive but **uncompressed**. Otherwise, container registries may give you a cryptic `MANIFEST_INVALID` error.
+{% endhint %}
 
 #### **Registry format - OCI Image Manifest**
 
@@ -269,11 +281,15 @@ The OCI image manifest is also a registry image manifest that defines components
 
 `config.mediaType`  - must be set to `application/vnd.oci.image.config.v1+json`
 
-Each object in `layers` must have `mediaType` be either `application/vnd.oci.image.layer.v1.tar+gzip` or `application/vnd.oci.image.layer.v1.tar`. Note that OCI allows for layer blobs to be not compressed with GZIP with the `application/vnd.oci.image.layer.v1.tar` `mediaType`.
+Each object in `layers` must have `mediaType` be either `application/vnd.oci.image.layer.v1.tar+gzip` or `application/vnd.oci.image.layer.v1.tar`.
+
+{% hint style="info" %}
+OCI also allows for layer blobs to be not compressed with GZIP with the `application/vnd.oci.image.layer.v1.tar` `mediaType`.
+{% endhint %}
 
 #### **Manifest List/Image Index**
 
-A _manifest list_ \(or _image index_ in OCI terms\) is a way to specify multiple manifests for a single image. Each manifest is associated with a specific platform \(operating system and architecture\) so that a container runtime can choose the appropriate manifest to use for the platform it is running on. Manifest lists are fairly uncommon and we will not go into details about them. See official documentation for more information about a [manifest list ](https://docs.docker.com/registry/spec/manifest-v2-2/#manifest-list) or [image index](https://github.com/opencontainers/image-spec/blob/master/image-index.md).
+A _manifest list_ \(or _image index_ in OCI terms\) is a way to specify multiple manifests for a single image. Each manifest is associated with a specific platform \(operating system and architecture\) so that a container run-time can choose the appropriate manifest to use for the platform it is running on. Manifest lists are fairly uncommon and we will not go into details about them. See official documentation for more information about a [manifest list ](https://docs.docker.com/registry/spec/manifest-v2-2/#manifest-list) or [image index](https://github.com/opencontainers/image-spec/blob/master/image-index.md).
 
 ### Let’s explore a Docker image with docker
 
@@ -281,13 +297,13 @@ A _manifest list_ \(or _image index_ in OCI terms\) is a way to specify multiple
 
 ## **Container image registry**
 
-In order for a container orchestration system like Kubernetes to run container imgaes, it needs to pull the container imges from some container image repository. This is where container image registries come in. Container image registries store container images to be served via specific addresses called **image references**. These registries are usually blob stores that store the container image layers in separate blobs. They also store manifests that describe which blobs make up a specific image. The most common container image registry is the Docker Registry V2, which is a API specification for a registry server. Some examples of image registries include Docker Hub \(the default image registry for Docker\), Google Container Registry \(GCR\), AWS Elastic Container Registry \(ECR\), Microsoft Azure Container Registry \(ACR\), [Harbor](https://github.com/goharbor/harbor), [JFrog Artifactory](https://www.jfrog.com/confluence/display/RTF/Getting+Started+with+Artifactory+as+a+Docker+Registry), [Quay](https://quay.io/), and [Sonatype Nexus](https://help.sonatype.com/repomanager3/private-registry-for-docker).
+In order for a container orchestration system like Kubernetes to run container images, it needs to pull the container images from some container image repository. This is where container image registries come in. Container image registries store container images to be served via specific addresses called **image references**. These registries are usually BLOB stores that store the container image layers in separate BLOBs. They also store manifests that describe which blobs make up a specific image. The most common container image registry is the _Docker Registry V2_, which is an API specification for a registry server. Some examples of hosted Docker registries include [Docker Hub](https://hub.docker.com/) \(the default image registry for Docker\), [Google Container Registry](https://cloud.google.com/container-registry/) \(GCR\), [AWS Elastic Container Registry](https://aws.amazon.com/ecr/) \(ECR\), [Microsoft Azure Container Registry](https://azure.microsoft.com/en-us/services/container-registry/) \(ACR\), [Harbor](https://github.com/goharbor/harbor), [JFrog Artifactory](https://www.jfrog.com/confluence/display/RTF/Getting+Started+with+Artifactory+as+a+Docker+Registry), [Quay](https://quay.io/), and [Sonatype Nexus](https://help.sonatype.com/repomanager3/private-registry-for-docker).
 
 We will go over the details of _Docker Registry API V2_ \(we’ll just refer to it as the _Registry API_\), since most container registries implement that specification. For the full specification details, read the [Docker Registry HTTP API V2 spec](https://docs.docker.com/registry/spec/api/).
 
 ### **How a registry stores an image**
 
-Although the specific implementation details are undefined and differ between each implementation of the Registry API, conceptually, the registry can be thought of as a blob store that can have blobs pushed to and pulled from the registry. The Registry API works with the Docker/OCI Image Format, so the blobs would be the layers and the container configurations. The manifests are not referred to as blobs, but rather are the artifacts that actually represent an image \(by listing its component blobs\).
+Although the specific implementation details are undefined and differ between each implementation of the Registry API, conceptually, the registry can be thought of as a blob store that can have blobs pushed to and pulled from. The Registry API works with the Docker/OCI Image Format, so the blobs would be the layers and the container configurations. The manifests are not referred to as blobs, but rather are the artifacts that actually represent an image \(by listing its component blobs\).
 
 ![Topology of a registry](.gitbook/assets/build-containers-the-hard-way-section-drafts.png)
 

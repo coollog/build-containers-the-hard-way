@@ -549,5 +549,13 @@ As caches grow in size, they may need to be pruned. A simple mechanism is to use
 > * **Minimize change**
 > * **stream everything through sinks/sources**
 
+## Useful links
 
+* [https://www.danlorenc.com/posts/containers-part-1/](https://www.danlorenc.com/posts/containers-part-1/)
+* [https://www.danlorenc.com/posts/containers-part-2/](https://www.danlorenc.com/posts/containers-part-2/)
+* [https://github.com/opencontainers/image-spec/blob/master/config.md](https://github.com/opencontainers/image-spec/blob/master/config.md)
+* [https://github.com/opencontainers/image-spec/blob/master/manifest.md](https://github.com/opencontainers/image-spec/blob/master/manifest.md)
+* [https://github.com/opencontainers/image-spec/blob/master/image-index.md](https://github.com/opencontainers/image-spec/blob/master/image-index.md)
+* [go/microlayers](http://go/microlayers)
+* [go/millilayers](http://go/millilayers)
 

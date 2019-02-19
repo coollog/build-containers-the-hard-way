@@ -10,19 +10,23 @@ At the end of this guide, you should understand the internals of a container ima
 
 A _container_ is a way of executing processes with isolation provided by 3 Linux technologies - `chroot`, `namespaces`, and `cgroups`.
 
-`chroot` sets the directory to use as the root \(`/`\) of the file system the process sees, instead of the actual file system root.
+`chroot` changes the file system root \(`/`\) that a process can see. This allows a process to use any directory as if it were a file system root instead of the actual file system root.
 
-`namespaces` group resources \(like network and process IDs\) so that only processes within a namespace can see the resources of that namespace.
+`namespaces` group resources together \(like network and process IDs\) so that only processes within a namespace can see the resources of that namespace.
 
 `cgroups` set CPU and memory limits for processes.
 
-The main goal of containers is to allow processes to run in isolation from other processes both on the file system level and on the resource utilization level.
+The combination of these allows processes to run in isolation from other processes both on the file system level and on the resource utilization level. Processes inside a container do not see other processes in other containers. Rather, they only see their own view of the system that is not cluttered other processes.
 
-A _container image_ a way to package up an application along with its runtime dependencies so that the package can run as a _container_. A container image is simply a directory of files along with metadata about how to run the container.
+A _container image_ a way to package up an application so that it can run as a _container_. This package includes the application and any run-time dependencies and is simply a directory of files along with metadata about how to run the container.
+
+{% hint style="success" %}
+A _container image_ is simply a directory of files along with metadata about how to run the container.
+{% endhint %}
 
 [Containers from Scratch](https://ericchiang.github.io/post/containers-from-scratch/) is a good article explaining how to run your own containers using simple Linux commands.
 
-### Build a Docker container image with Docker
+### Build a container image with Docker
 
 Docker is the most popular tool for working with container images. It has built-in support for building and running containers. Docker defines its own scripting language for defining how to build a container image.
 
@@ -64,9 +68,9 @@ Successfully built 5550043a7340
 
 The logs of the `docker build` command clearly show how Docker executes the build based on our Dockerfile.
 
-The `docker build .` command tells Docker to use the local current working directory \(`.`\) as the _Docker context_. The Docker context is sent to the _Docker daemon_. The `docker` CLI is the client that you use to send commands and data to the Docker daemon. The Docker daemon stores and runs containers.
+The `docker` CLI is the client that you use to send commands and data to the _Docker daemon_. The Docker daemon stores and runs containers. First, the `docker build .` command tells Docker to use the local current working directory \(`.`\) as the _Docker context_. The Docker context is sent to the Docker daemon.
 
-The commands in the Dockerfile are run in the given order. The Docker daemon runs a container to execute each command and generates a new container image at the end of each step.
+The commands in the Dockerfile are then run in the given order. The Docker daemon runs a container to execute each command and generates a new container image at the end of each step.
 
 The `FROM python` step tells Docker to build the new container starting with the [python container image from Docker Hub](https://hub.docker.com/_/python) as the base.
 
@@ -74,7 +78,9 @@ The `FROM python` step tells Docker to build the new container starting with the
 
 `WORKDIR /public` sets the working directory for the container image we are building, so that when the container image is run, the current working directory for the process is `/public`.
 
-The container that was created by the `WORKDIR` command is removed. Steps that do not change the container file system only modify the _container configuration_ and are removed. The container configuration is metadata that describes how to run the container entrypoint process.
+{% hint style="info" %}
+Note that the container that was created by the `WORKDIR` command is removed. Steps that do not change the container file system only modify the _container configuration_ and are removed. The container configuration is metadata that describes how to run the container entrypoint process.
+{% endhint %}
 
 `ENTRYPOINT ...` sets the command to run when the container is run, which, in this case, runs an HTTP server that serves all the files in `/public`. So, for example, if we had HTML files in our local current working directory, those would be served by this container.
 
@@ -88,7 +94,9 @@ $ docker run -p 8000:8000 5550043a7340
 
 This runs the container and forwards the port to `localhost:8000`. If you had, say, an `index.html` in your local current working directory, going to `localhost:8000` would serve the contents of `index.html`.
 
+{% hint style="info" %}
 Another common Dockerfile instruction is `RUN <command>`, which executes the `<command>` using whichever shell is present in the container, creating a new container following the result of executing that command.
+{% endhint %}
 
 ### Advanced Docker Builds
 
@@ -119,6 +127,10 @@ RUN mkdir mydirectory && \
 ```
 
 However, frequently-changing steps should not be combined with infrequently-changing heavy steps - rather, an efficient Dockerfile should try to separate these as much as possible to avoid running infrequently-changing steps.
+
+{% hint style="warning" %}
+One important caveat to note is how Docker caches RUN instructions. Even though RUN commands may produce different results each time, Docker only invalidates the cache for a RUN instruction if the command itself changes. This may produce unexpected results if you intended a RUN instruction to not use a cached version.
+{% endhint %}
 
 #### **Use multistage builds for more flexibility than just a linear Dockerfile build**
 

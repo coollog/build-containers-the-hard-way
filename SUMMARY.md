@@ -1,4 +1,4 @@
 # Table of contents
 
-* [Building Containers the Hard Way](README.md)
+* [Build Containers the Hard Way](README.md)
 

@@ -1,4 +1,4 @@
-# Building Containers the Hard Way
+# Build Containers the Hard Way
 
 _Like_ [_Kubernetes the Hard Way_](https://github.com/kelseyhightower/kubernetes-the-hard-way)_, but for building containers._
 
@@ -338,6 +338,216 @@ GET /v2/<repository>/manifests/<tag or digest>
 For example, to get the manifest for `openjdk`, the endpoint would be `https://registry.hub.docker.com/v2/library/openjdk/manifests/latest`.
 
 Headers to send include `Authorization` \(explained in the Token Authentication section\) and `Accept`. For example, if you want to only accept and parse manifests for Docker Image Format V2 Schema 2, you would want to set `Accept: application/vnd.docker.distribution.manifest.v2+json`.
+
+{% hint style="info" %}
+Manifests can also come in list format for some images. These would have a media type like `application/vnd.docker.distribution.manifest.list.v2+json`. These manifests lists contain specific manifests for different architectures and operating systems. For example, if you are looking specifically for a manifest for the amd64/linux platform, you would parse the manifest list for the corresponding manifest for that platform and then pull that manifest using its specific digest. See [an example of a manifest list](https://docs.docker.com/registry/spec/manifest-v2-2/#example-manifest-list).
+{% endhint %}
+
+#### Pull the blobs
+
+After the manifest is pulled, the specific blob digests can be extracted for the container configuration and the layers. Each blob can be pulled in parallel via:
+
+```text
+GET /v2/<repository>/blobs/<digest>
+```
+
+You might want to verify that the size of the blob pulled is what you expected based on the size specified in the manifest.
+
+### Pushing an image
+
+Pushing an image is like pulling an image except in reverse:
+
+1. Push the blobs.
+2. Push the manifest.
+
+#### Push the blobs
+
+Blobs can be pushed in parallel and pushing each blob is a 3-step process:
+
+1. Initialize upload.
+2. Send content.
+3. Commit with digest.
+
+Initialize the upload by sending a request to:
+
+```http
+POST /v2/<repository>/blobs/uploads/
+```
+
+A successful `202 Accepted` response should contain a `Location` header with the URL to send the blob content to. There are a few ways to send the blob content, but the recommended way is to send the content in a single request. This request should be automatically chunked as an octet stream. Send the blob content to the `Location` via:
+
+```http
+PATCH <Location>
+
+<blob binary data>
+```
+
+The success response should be `202 Accepted`. Once a blob is uploaded, the blob can be committed with its digest:
+
+```http
+PUT <Location>?digest=<digest>
+```
+
+The success response should be `201 Created`.
+
+#### Avoid unnecessary pushes
+
+**Check if blob already exists**
+
+To avoid pushing a blob that already exists on a registry, if the blob’s digest is known beforehand, you can check the existence of the blob with:
+
+```http
+HEAD /v2/<repository>/blobs/<digest>
+```
+
+If the blob exists, the response will be `200 OK`.
+
+**Cross-repository blob mount**
+
+If the blob exists in another repository in the same registry, you can also try directly mounting the blob into the target repository:
+
+```http
+POST /v2/<repository>/blobs/uploads/?mount=<digest>&from=<source repository>
+```
+
+If the blob mount succeeds, the response will be `201 Created`. If the blob mount fails \(blob doesn’t exist or cross-repository blob mount not supported\), the response will be a normal blob upload initialization response with a `Location` to send the blob content to.
+
+An important aspect to note is that the `Authorization` to send with this request must have permissions to pull from the source repository in addition to permissions to push to the target repository. See the Token Authentication section below for details.
+
+#### Push the manifest
+
+Once all the blobs are committed, the manifest can be pushed via:
+
+```http
+PUT /v2/<repository>/manifests/<tag>
+```
+
+Make sure to set the `Content-Type` to the correct manifest media type. For Docker V2.2, the media type would be `application/vnd.docker.distribution.manifest.v2+json` and for OCI, the media type would be `application/vnd.oci.image.manifest.v1+json`.
+
+### Authenticating requests
+
+Most registry requests would require a sufficient `Authorization` header to be authenticated. Otherwise, a `401 Unauthorized` or `403 Forbidden` response would be received.
+
+The standard flow for any request should be:
+
+1. Try the request.
+2. If unauthorized, obtain a token.
+3. Retry the request with the token.
+
+For example, an authorized response may include a [WWW-Authenticate header](https://tools.ietf.org/html/rfc6750#section-3) like:
+
+```http
+Www-Authenticate: Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:coollog/myimage:pull,push"
+```
+
+To obtain a token, send the following request along with an `Authorization` header containing the credentials for access to the repository:
+
+```http
+GET https://auth.docker.io/token?service=registry.docker.io&scope=repository:coollog/myimage:pull,push
+```
+
+For example, if the Docker Hub password for the `coollog` account was `donthackme123`, the `Authorization` header would be `Authorization: Basic Y29vbGxvZzpkb250aGFja21lMTIz`, where `Y29vbGxvZzpkb250aGFja21lMTIz` is the Base64 encoding of `coollog:donthackme123`.
+
+The response should be a JSON containing either a `token` or `access_token` \(OAuth 2.0\) that is the authenticated Bearer token. The JSON also may also contain an `expires_in` and `issued_at` field for knowing when the token expires. These tokens should be cached and applied to any subsequent requests \(until expired\) to skip steps 1 and 2.
+
+Note that multiple `scope`s can be included. For example, for a cross-repository blob mount with `otheruser/baseimage` as the source repository, the request may be:
+
+```http
+GET https://auth.docker.io/token?service=registry.docker.io&scope=repository:coollog/myimage:pull,push&scope=repository:otheruser/baseimage:pull
+```
+
+This request would also include two `Authorization` headers, with the additional `Authorization` containing credentials for pulling from `otheruser/baseimage`.
+
+#### Where to find registry credentials
+
+If a user has Docker installed, they most likely have it configured with credentials to use for various repositories they have access to. This configuration can be found at the `.docker/config.json` file located in the user’s home directory. This configuration can store both raw credentials and references to credential helpers, where credentials can be fetched from.
+
+The raw credentials are stored in an `auths` field that is a map with registry URLs as keys. For example:
+
+```javascript
+{
+  "auths": {
+    "https://gcr.io": {
+      "email": "not@val.id",
+      "auth": "<Base64-encoded username:password>"
+    }
+  }
+}
+```
+
+The credential helper references are stored in a `credHelpers` field that maps from registry URLs to credential helper names. For example:
+
+```javascript
+{
+  "credHelpers": {
+    "gcr.io": "gcr",
+    "us.gcr.io": "gcr",
+    "aws_account_id.dkr.ecr.region.amazonaws.com": "ecr-login"
+  }
+}
+```
+
+A default credential helper can also be specified in a `credsStore` field. For example:
+
+```text
+{
+  "credsStore": "osx-keychain"
+}
+```
+
+Note that registry URLs can come with or without a protocol and with or without arbitrary suffixes. For example, the following all refer to `gcr.io`:
+
+```text
+gcr.io
+https://gcr.io
+gcr.io/v2/
+https://gcr.io/v2/
+```
+
+Credential helpers are command-line tools that can be used to fetch credentials for a registry. To fetch credentials from a credential helper, call the credential helper `get` command, passing in the server URL as the input. For example, to fetch credentials from the credential helper named `gcr` for the `gcr.io` registry, call:
+
+```bash
+$ echo gcr.io | docker-credential-gcr get
+```
+
+If the credentials are present, the output should be a JSON that includes a `Username` and `Secret` field which can be used as the username and password, respectively, for authenticating a token.
+
+### Local caching
+
+When building an image by constructing layers on top of a base image, it may be expensive to pull base image layers every time. To resolve this, there should be some local cache to store images.
+
+For example, Jib uses a simple cache mechanism that stores blobs in a specific directory structure. The cache directory contains two subdirectories: `blobs/` and `selectors/`. The `blobs/` directory contains files for each blob named by their digest. The `selectors/` directory contains **selector** files whose names are the selectors themselves and contents are the digests of the blobs they point to. Both blobs and selectors should be immutable and unique.
+
+This design supports fetching a blob by digest and by selector. When writes are made atomic, the cache can be used fully concurrently across multiple blobs. Selectors are useful for “finding” a blob by some representation of its contents. For example, in Jib, some blobs are layers that were built from the Java application source code. The selectors for these blobs are a list of files that went into building that layer. The name of a selector is the SHA256 digest of that file list. Uniqueness is provided by associating each file with its last modified time and immutability is provided by the determinism of SHA256. What this allows Jib to do is that when files don’t change, they will always generate the same selector and give back an existing blob so that that blob does not need to be re-generated; but, when files do change, the generated selector is different and a new selector-blob pair will be added to the cache.
+
+An example cache directory layout could look like:
+
+```text
+blobs/
+  36a2b7401dcddc50a35aeaa81085718b9d5fbce9d607c55a1d79beec2469f9ac
+  ...
+selectors/
+  65de3b72aaf98e4f300ccdf7d64bf9a3b1e23c8c44a1242265f717db1a0877e9
+  ...
+```
+
+Here, the `65de3b72…` selector file contains the 36a2b740… digest. See the proposal for the original [Jib cache design](https://github.com/GoogleContainerTools/jib/blob/master/proposals/archives/cache_v2.md).
+
+#### Large caches
+
+As caches grow in size, they may need to be pruned. A simple mechanism is to use a least-recently-used method. For caches that grow large, however, resolving a blob or selector may become expensive since directory traversal can is at best logarithmic to the number of directory entries. A simple technique to alleviate this would be to shard the directory into a number of bins, and potentially do so recursively within each bin. For example, the bins could be named `00` through `ff`, with each file being placed into the bin that matches the first two characters in its file name.
+
+### Walk through pulling an image with bash
+
+> TODO
+
+## Making an efficient container builder
+
+> TODO
+>
+> * **Separate into fine layers**
+> * **Minimize change**
+> * **stream everything through sinks/sources**
 
 
 

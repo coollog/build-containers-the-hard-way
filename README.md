@@ -200,7 +200,7 @@ The main information in a manifest are the components that make up a container i
 [
   {
     "Config":"config.json",
-    "RepoTags":["myimage"]
+    "RepoTags":["myimage"],
     "Layers": [
       "layer1.tar.gz",
       "layer2.tar.gz",
@@ -486,7 +486,7 @@ GET https://auth.docker.io/token?service=registry.docker.io&scope=repository:coo
 
 For example, if the Docker Hub password for the `coollog` account was `donthackme123`, the `Authorization` header would be `Authorization: Basic Y29vbGxvZzpkb250aGFja21lMTIz`, where `Y29vbGxvZzpkb250aGFja21lMTIz` is the Base64 encoding of `coollog:donthackme123`.
 
-The response should be a JSON containing either a `token` or `access_token` \(OAuth 2.0\) that is the authenticated Bearer token. The JSON also may also contain an `expires_in` and `issued_at` field for knowing when the token expires. These tokens should be cached and applied to any subsequent requests \(until expired\) to skip steps 1 and 2.
+The response should be a JSON containing either a `token` or `access_token` \(OAuth2\) that is the authenticated Bearer token. The JSON also may also contain an `expires_in` and `issued_at` field for knowing when the token expires. These tokens should be cached and applied to any subsequent requests \(until expired\) to skip steps 1 and 2.
 
 Note that multiple `scope`s can be included. For example, for a cross-repository blob mount with `otheruser/baseimage` as the source repository, the request may be:
 
@@ -494,11 +494,11 @@ Note that multiple `scope`s can be included. For example, for a cross-repository
 GET https://auth.docker.io/token?service=registry.docker.io&scope=repository:coollog/myimage:pull,push&scope=repository:otheruser/baseimage:pull
 ```
 
-This request would also include two `Authorization` headers, with the additional `Authorization` containing credentials for pulling from `otheruser/baseimage`.
+This request would need to include `Authorization` for both scopes though.
 
 #### Where to find registry credentials
 
-If a user has Docker installed, they most likely have it configured with credentials to use for various repositories they have access to. This configuration can be found at the `.docker/config.json` file located in the user’s home directory. This configuration can store both raw credentials and references to credential helpers, where credentials can be fetched from.
+If a user has Docker installed, they most likely have it configured with credentials to use for various repositories they have access to \(through `docker login`\). This configuration can be found at the `.docker/config.json` file located in the user’s home directory. This configuration can store both raw credentials and references to _credential helpers_. Credential helpers are CLI tools that can be used to fetch credential.
 
 The raw credentials are stored in an `auths` field that is a map with registry URLs as keys. For example:
 
@@ -550,11 +550,32 @@ $ echo gcr.io | docker-credential-gcr get
 
 If the credentials are present, the output should be a JSON that includes a `Username` and `Secret` field which can be used as the username and password, respectively, for authenticating a token.
 
+{% hint style="info" %}
+Note that when the `Username` returned is `<token>`, the `Secret` is actually an identity token that should be used as a refresh token in obtaining an OAuth2 access token. For example, Azure's credential helper returns a JSON that looks like:
+
+```javascript
+{
+    "ServerURL": "",
+    "Username": "<token>",
+    "Secret": "<eyJhbGciOi...88Q>"
+}
+```
+
+The `Secret` should be used as the refresh token for an OAuth2 access token request:
+
+```http
+POST https://myregistry.azurecr.io/oauth2/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&service=myregistry.azurecr.io&scope=repository:andy:pull&refresh_token=<eyJhbGciOi...88Q>
+```
+{% endhint %}
+
 ### Local caching
 
-When building an image by constructing layers on top of a base image, it may be expensive to pull base image layers every time. To resolve this, there should be some local cache to store images.
+When building an image by constructing layers on top of a base image, it may be expensive to pull base image layers every time. To resolve this, you should use a local cache to store images.
 
-For example, Jib uses a simple cache mechanism that stores blobs in a specific directory structure. The cache directory contains two subdirectories: `blobs/` and `selectors/`. The `blobs/` directory contains files for each blob named by their digest. The `selectors/` directory contains **selector** files whose names are the selectors themselves and contents are the digests of the blobs they point to. Both blobs and selectors should be immutable and unique.
+For example, Jib uses a simple cache mechanism that stores blobs in a specific directory structure. The cache directory contains two subdirectories: `blobs/` and `selectors/`. The `blobs/` directory contains files for each blob named by their digest. The `selectors/` directory contains _selector_ files whose names are the selectors themselves and contents are the digests of the blobs they point to. Both blobs and selectors should be immutable and unique.
 
 This design supports fetching a blob by digest and by selector. When writes are made atomic, the cache can be used fully concurrently across multiple blobs. Selectors are useful for “finding” a blob by some representation of its contents. For example, in Jib, some blobs are layers that were built from the Java application source code. The selectors for these blobs are a list of files that went into building that layer. The name of a selector is the SHA256 digest of that file list. Uniqueness is provided by associating each file with its last modified time and immutability is provided by the determinism of SHA256. What this allows Jib to do is that when files don’t change, they will always generate the same selector and give back an existing blob so that that blob does not need to be re-generated; but, when files do change, the generated selector is different and a new selector-blob pair will be added to the cache.
 
@@ -569,15 +590,278 @@ selectors/
   ...
 ```
 
-Here, the `65de3b72…` selector file contains the 36a2b740… digest. See the proposal for the original [Jib cache design](https://github.com/GoogleContainerTools/jib/blob/master/proposals/archives/cache_v2.md).
+Here, the `65de3b72…` selector file contains the `36a2b740…` digest. See the proposal for the original [Jib cache design](https://github.com/GoogleContainerTools/jib/blob/master/proposals/archives/cache_v2.md) for more details.
 
 #### Large caches
 
-As caches grow in size, they may need to be pruned. A simple mechanism is to use a least-recently-used method. For caches that grow large, however, resolving a blob or selector may become expensive since directory traversal can is at best logarithmic to the number of directory entries. A simple technique to alleviate this would be to shard the directory into a number of bins, and potentially do so recursively within each bin. For example, the bins could be named `00` through `ff`, with each file being placed into the bin that matches the first two characters in its file name.
+As caches grow in size, they may need to be pruned. A simple mechanism is to use a least-recently-used method. For caches that grow large, however, resolving a blob or selector may become expensive since directory traversal is at best logarithmic to the number of directory entries. A simple technique to alleviate this would be to shard the directory into a number of bins, and potentially do so recursively within each bin. For example, the bins could be named `00` through `ff`, with each file being placed into the bin that matches the first two characters in its file name.
 
-### Walk through pulling an image with bash
+### Walk through: pulling an image with bash
 
-> TODO
+Let's walk through pulling the `busybox` image from Docker Hub using some `bash` commands.
+
+First, we will try to obtain a token to pull the `busybox` image. We `curl` the registry API root to get the `WWW-Authenticate` challenge:
+
+```bash
+$ curl -v https://registry.hub.docker.com/v2/
+...
+< HTTP/1.1 401 Unauthorized
+...
+< Www-Authenticate: Bearer realm="https://auth.docker.io/token",service="registry.docker.io"
+...
+```
+
+Okay, we can now respond to this challenge to get an access token for `busybox`. Since `busybox` is a public image, we don't need to include any `Authorization`.
+
+```bash
+$ curl -v "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/busybox:pull"
+...
+< 
+{
+  "token": "eyJhbGci...",
+  "access_token": "eyJhbGci...",
+  ...
+}
+```
+
+We can now store this token and use it to obtain the manifest for `busybox`:
+
+```bash
+$ TOKEN=eyJhbGci...
+$ curl https://registry.hub.docker.com/v2/library/busybox/manifests/latest \
+      -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+      -H "Authorization: Bearer $TOKEN"
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "config": {
+    "mediaType": "application/vnd.docker.container.image.v1+json",
+    "size": 1497,
+    "digest": "sha256:d8233ab899d419c58cf3634c0df54ff5d8acc28f8173f09c21df4a07229e1205"
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size": 755901,
+      "digest": "sha256:697743189b6d255069caf6c455be10c7f8cae8076c6f94d224ae15cd41420e87"
+    }
+  ]
+}
+```
+
+Great, now let's fetch the container configuration:
+
+```bash
+$ curl https://registry.hub.docker.com/v2/library/busybox/blobs/sha256:d8233ab8... \
+       -H "Authorization: Bearer $TOKEN" \
+       -L \
+       -o config.json
+$ cat config.json
+{
+  "architecture": "amd64",
+  "config": ...,
+  "container": ...,
+  "container_config": ...,
+  "created": ...,
+  "docker_version": ...,
+  "history": ...,
+  "os": "linux",
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:adab5d09ba79ecf30d3a5af58394b23a447eda7ffffe16c500ddc5ccb4c0222f"
+    ]
+  }
+}
+```
+
+And also the layer archive:
+
+```bash
+$ curl https://registry.hub.docker.com/v2/library/busybox/blobs/sha256:69774318... \
+      -H "Authorization: Bearer $TOKEN" \
+      -L \
+      -o layer.tar.gz
+```
+
+Now, let's write the `manifest.json` for `docker load`:
+
+```bash
+$ echo '[
+  {
+    "Config":"config.json",
+    "RepoTags":["busybox:latest"],
+    "Layers": [
+      "layer.tar.gz"
+    ]
+  }
+]' > manifest.json
+```
+
+We can now `tar` up the entire image and load it into Docker:
+
+```bash
+$ tar -cvf busybox.tar *
+$ docker load < busybox.tar
+adab5d09ba79: Loading layer [==================================================>]  755.9kB/755.9kB
+Loaded image: busybox:latest
+```
+
+We can now run the `busybox` image we just pulled:
+
+```bash
+$ docker run -it busybox
+/ # ls
+bin   dev   etc   home  proc  root  sys   tmp   usr   var
+```
+
+### Walk through: building and pushing an image with bash
+
+Now, let's try building an image with `bash`. We'll build a simple image that has a shell script that prints `"Hello World"` on top of the `busybox` image.
+
+First, let's write the `"Hello World"` shell script and archive it into its own layer tarball:
+
+```bash
+$ echo 'echo "Hello World"' > hello.sh && chmod +x hello.sh
+$ tar -czvf app-layer.tar.gz hello.sh
+```
+
+We can get the SHA256 digest for this layer, its diff ID, and size in bytes:
+
+```bash
+$ sha256sum < app-layer.tar.gz 
+c6c6bfc03cd5df3c175553d2f6c178fb57c9430841a5cb18b6bef9a224849e3c  -
+$ gunzip < app-layer.tar.gz | sha256sum
+9c20a6aa71f1cd3cc2f794e235cc505403a251b6ebce7f90418411e2142fe32f  -
+$ stat -c%s app-layer.tar.gz
+162
+```
+
+Next, we'll create the container configuration and get its digest/size:
+
+```bash
+$ echo '{
+  "architecture": "amd64",
+  "os": "linux",
+  "config": {
+    "Entrypoint": "hello.sh"
+  },
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:adab5d09ba79ecf30d3a5af58394b23a447eda7ffffe16c500ddc5ccb4c0222f",
+      "sha256:9c20a6aa71f1cd3cc2f794e235cc505403a251b6ebce7f90418411e2142fe32f"
+    ]
+  }
+}' > config.json
+$ sha256sum < config.json
+d659bbc80c66ccd1b5791c05e465c7a6ec0edd4f1c34f5ea18049b99958bc72d  -
+$ stat -c%s config.json
+321
+```
+
+Now we can construct the manifest:
+
+```bash
+$ echo '{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "config": {
+    "mediaType": "application/vnd.docker.container.image.v1+json",
+    "size": 321,
+    "digest": "sha256:d659bbc80c66ccd1b5791c05e465c7a6ec0edd4f1c34f5ea18049b99958bc72d"
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size": 755901,
+      "digest": "sha256:697743189b6d255069caf6c455be10c7f8cae8076c6f94d224ae15cd41420e87"
+    },
+    {
+      "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size": 162,
+      "digest": "sha256:c6c6bfc03cd5df3c175553d2f6c178fb57c9430841a5cb18b6bef9a224849e3c"
+    }
+  ]
+}' > manifest.json
+```
+
+Let's say we want to push to our own Docker Hub repository. If you don't have a Docker Hub account, simply [register one](https://hub.docker.com/signup). Let's push our image to `<username>/hello`. First, we need to push our layers. The first layer comes from `busybox`, so we can actually just mount that into our new image:
+
+```bash
+$ USERNAME=<username>
+$ curl "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$USERNAME/hello:pull,push&scope=repository:library/busybox:pull" \
+      -u "$USERNAME" \
+      -v
+{
+  "token": "eyJhbGci...",
+  ...
+}
+$ TOKEN=eyJhbGci...
+$ curl "https://registry.hub.docker.com/v2/$USERNAME/hello/blobs/uploads/?mount=sha256:697743189b6d255069caf6c455be10c7f8cae8076c6f94d224ae15cd41420e87&from=library/busybox" \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '' \
+      -v
+...
+< HTTP/1.1 201 Created
+...
+```
+
+Cool, we successfully mounted the `busybox` layer into our `<username>/hello` repository.
+
+{% hint style="warning" %}
+The token most likely has a 5-minute expiration, so you may need to re-authenticate if it expires or your requests may fail with `401 Unauthorized`.
+{% endhint %}
+
+Now, let's push our `hello.sh` layer:
+
+```bash
+$ curl https://registry.hub.docker.com/v2/$USERNAME/hello/blobs/uploads/ \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '' \
+      -v
+...
+< HTTP/1.1 202 Accepted
+...
+< Location: https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/d3221a35-5c4e-45c5-9a1a-8f274bfbe077?_state=_7kmmic...
+...
+```
+
+We can send the layer contents to the `Location` received:
+
+```bash
+$ LOCATION=https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/d3221a35-5c4e-45c5-9a1a-8f274bfbe077?_state=_7kmmic...
+$ curl $LOCATION \
+      -X PATCH \
+      --data-binary @app-layer.tar.gz \
+      -H "Content-Type: application/octet-stream" \
+      -H "Authorization: Bearer $TOKEN" \
+      -v
+...
+< HTTP/1.1 202 Accepted
+...
+< Location: https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/51e06c34-74ee-4c65-bc59-b8fbfa79f916?_state=iQtNKd...
+...
+```
+
+We then commit our BLOB to the new `Location` received:
+
+```bash
+$ LOCATION=https://registry.hub.docker.com/v2/coollog/hello/blobs/uploads/51e06c34-74ee-4c65-bc59-b8fbfa79f916?_state=iQtNKd...
+$ curl "$LOCATION&digest=sha256:c6c6bfc03cd5df3c175553d2f6c178fb57c9430841a5cb18b6bef9a224849e3c" \
+      -X PUT \
+      -H "Authorization: Bearer $TOKEN" \
+      -v
+...
+< HTTP/1.1 201 Created
+...
+```
+
+Great, now that we have our layer uploaded, we can do the same for our container configuration BLOB:
+
+```bash
+
+```
 
 ## Making an efficient container builder
 

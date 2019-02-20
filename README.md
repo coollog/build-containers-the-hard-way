@@ -314,12 +314,12 @@ The diagram shows the topology of a registry. A registry contains multiple repos
 An image is identified by an image reference. This image reference provides a human-readable way to address images and is composed of a few components:
 
 * _Registry_ - The URL to reach the registry server. By default, this registry would be Docker Hub \(`registry.hub.docker.com`\).
-* _Repository_ - Also known as the _namespace_, repositories help organize images into their own “directories” on the registry. Authentication applies on a per-repository basis. When the registry is Docker Hub, the default repository prefix for a single-level repository is `library`.
+* _Repository_ - Also known as the _namespace_, repositories help organize images into their own “directories” on the registry. Authentication applies on a per-repository basis. When the registry is Docker Hub, the default repository prefix for a single-level repository is `library/` \(for example, `busybox` refers to `library/busybox`\).
 * _Tag_ - Each image within a repository is addressable by the digest of its manifest. However, digests can be difficult to manage and is not human-friendly. Tags can be set to point to specific digests to more conveniently identify specific images. These tags can also be reassigned to different digests as well. A specific image can also have multiple tags pointing to it. Each new manifest must go under a specific tag and the default tag is `latest`.
 
 For example, consider the following image reference: `openjdk:8-jre-alpine`
 
-* Since there is no registry URL specified, the registry is by default Docker Hub. The repository component is specified as `openjdk`. Since the repository is only a single level and the registry is Docker Hub, the repository is actually resolved as [library/openjdk](https://hub.docker.com/_/openjdk). The tag component is specified after a colon. In this example, the tag is `8-jre-alpine`. Although this tag is arbitrarily-defined, the maintainers of this repository chose to convey some information about the image through this tag. Here, this tag says that the specific image contains OpenJDK 8 with just the JRE \(Java Runtime Environment\) and Alpine \(a tiny Linux distribution\). Some other tags in the repository refer to the same image but contain more specific information, like `8u191-jre-alpine3.9`. Other tags may be less specific, like `jre`, which, at the time of writing, refers to an OpenJDK 11 image with the JRE and Debian Stretch. This tag will most likely move to refer to newer OpenJDK versions as they become GA. The latest tag also refers to the latest stable, default image the maintainers believes users will find useful in most cases and will move the tag as new versions become stable. There are some general tips and best practices for managing tags for a repository. 
+* Since there is no registry URL specified, the registry is by default Docker Hub. The repository component is specified as `openjdk`. Since the repository is only a single level and the registry is Docker Hub, the repository is actually resolved as [`library/openjdk`](https://hub.docker.com/_/openjdk). The tag component is specified after a colon. In this example, the tag is `8-jre-alpine`. Although this tag is arbitrarily-defined, the maintainers of this repository chose to convey some information about the image through this tag. Here, this tag says that the specific image contains OpenJDK 8 with just the JRE \(Java Runtime Environment\) and Alpine \(a tiny Linux distribution\). Some other tags in the repository refer to the same image but contain more specific information, like `8u191-jre-alpine3.9`. Other tags may be less specific, like `jre`, which, at the time of writing, refers to an OpenJDK 11 image with the JRE and Debian Stretch. This tag will most likely move to refer to newer OpenJDK versions as they become GA. The latest tag also refers to the latest stable, default image the maintainers believes users will find useful in most cases and will move the tag as new versions become stable. There are some general tips and best practices for managing tags for a repository. 
 
 > TODO: Maybe explain some tips?
 
@@ -327,7 +327,7 @@ Consider another image reference: `gcr.io/my-gcp-project/my-awesome-app/message-
 
 * The registry URL here is `gcr.io`, which is the server URL for Google Container Registry. The repository is `my-gcp-project/my-awesome-app/message-service`, which in GCR, means that the repository is on the `my-gcp-project` Google Cloud Platform project and under a `my-awesome-app/message-service` Google Cloud Storage subdirectory. The tag is `v1.2.3`, which is used to identify the version of the `message-service` this container image contains.
 
-An image can also be referred to by its specific image digest: `gcr.io/distroless/java@sha256:0430beea631408faa266e5d98d9c5dcc3c5f02c3ebc27a65d72bd281e3576097`.
+An image can also be referred to by its specific image digest, such as `gcr.io/distroless/java@sha256:0430beea631408faa266e5d98d9c5dcc3c5f02c3ebc27a65d72bd281e3576097`.
 
 There are also specific acceptable patterns for each component. The full regex can be found in the [Docker distribution code](https://github.com/docker/distribution/blob/master/reference/reference.go). For a brief summary:
 
@@ -376,7 +376,7 @@ For example, to get the manifest for `openjdk`, the endpoint would be `https://r
 Headers to send include `Authorization` \(explained in the Token Authentication section\) and `Accept`. For example, if you want to only accept and parse manifests for Docker Image Format V2 Schema 2, you would want to set `Accept: application/vnd.docker.distribution.manifest.v2+json`.
 
 {% hint style="info" %}
-Manifests can also come in list format for some images. These would have a media type like `application/vnd.docker.distribution.manifest.list.v2+json`. These manifests lists contain specific manifests for different architectures and operating systems. For example, if you are looking specifically for a manifest for the amd64/linux platform, you would parse the manifest list for the corresponding manifest for that platform and then pull that manifest using its specific digest. See [an example of a manifest list](https://docs.docker.com/registry/spec/manifest-v2-2/#example-manifest-list).
+Manifests can also come in list format for some images. These would have a media type like `application/vnd.docker.distribution.manifest.list.v2+json`. These manifests lists contain specific manifests for different architectures and operating systems. For example, if you are looking specifically for a manifest for the amd64/Linux platform, you would parse the manifest list for the corresponding manifest for that platform and then pull that manifest using its specific digest. See [an example of a manifest list](https://docs.docker.com/registry/spec/manifest-v2-2/#example-manifest-list).
 {% endhint %}
 
 #### Pull the blobs
@@ -410,7 +410,7 @@ Initialize the upload by sending a request to:
 POST /v2/<repository>/blobs/uploads/
 ```
 
-A successful `202 Accepted` response should contain a `Location` header with the URL to send the blob content to. There are a few ways to send the blob content, but the recommended way is to send the content in a single request. This request should be automatically chunked as an octet stream. Send the blob content to the `Location` via:
+A successful `202 Accepted` response should contain a `Location` header with the URL to send the blob content to. There are a few ways to send the blob content, but the recommended way is to send the content in a single request. The content can also be sent in chunks if you wish to implement resumable uploads. Send the blob content to the `Location` via:
 
 ```http
 PATCH <Location>
@@ -448,7 +448,9 @@ POST /v2/<repository>/blobs/uploads/?mount=<digest>&from=<source repository>
 
 If the blob mount succeeds, the response will be `201 Created`. If the blob mount fails \(blob doesn’t exist or cross-repository blob mount not supported\), the response will be a normal blob upload initialization response with a `Location` to send the blob content to.
 
+{% hint style="info" %}
 An important aspect to note is that the `Authorization` to send with this request must have permissions to pull from the source repository in addition to permissions to push to the target repository. See the Token Authentication section below for details.
+{% endhint %}
 
 #### Push the manifest
 

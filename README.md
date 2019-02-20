@@ -744,7 +744,7 @@ $ echo '{
   "architecture": "amd64",
   "os": "linux",
   "config": {
-    "Entrypoint": "hello.sh"
+    "Entrypoint": ["sh", "hello.sh"]
   },
   "rootfs": {
     "type": "layers",
@@ -755,9 +755,9 @@ $ echo '{
   }
 }' > config.json
 $ sha256sum < config.json
-d659bbc80c66ccd1b5791c05e465c7a6ec0edd4f1c34f5ea18049b99958bc72d  -
+586acba684019cc55f34a06f0f86b1864033f4ec4a4757366dcf4a420543ed07  -
 $ stat -c%s config.json
-321
+329
 ```
 
 Now we can construct the manifest:
@@ -768,8 +768,8 @@ $ echo '{
   "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
   "config": {
     "mediaType": "application/vnd.docker.container.image.v1+json",
-    "size": 321,
-    "digest": "sha256:d659bbc80c66ccd1b5791c05e465c7a6ec0edd4f1c34f5ea18049b99958bc72d"
+    "size": 329,
+    "digest": "sha256:586acba684019cc55f34a06f0f86b1864033f4ec4a4757366dcf4a420543ed07"
   },
   "layers": [
     {
@@ -847,7 +847,7 @@ $ curl $LOCATION \
 We then commit our BLOB to the new `Location` received:
 
 ```bash
-$ LOCATION=https://registry.hub.docker.com/v2/coollog/hello/blobs/uploads/51e06c34-74ee-4c65-bc59-b8fbfa79f916?_state=iQtNKd...
+$ LOCATION=https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/51e06c34-74ee-4c65-bc59-b8fbfa79f916?_state=iQtNKd...
 $ curl "$LOCATION&digest=sha256:c6c6bfc03cd5df3c175553d2f6c178fb57c9430841a5cb18b6bef9a224849e3c" \
       -X PUT \
       -H "Authorization: Bearer $TOKEN" \
@@ -860,8 +860,56 @@ $ curl "$LOCATION&digest=sha256:c6c6bfc03cd5df3c175553d2f6c178fb57c9430841a5cb18
 Great, now that we have our layer uploaded, we can do the same for our container configuration BLOB:
 
 ```bash
-
+$ curl https://registry.hub.docker.com/v2/$USERNAME/hello/blobs/uploads/ \
+      -H "Authorization: Bearer $TOKEN" \
+      -d '' \
+      -v
+...
+< Location: https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/c2be3c4b-d773-43d8-b1bd-b94eab1e20a0?_state=ZYOlPQD...
+...
+$ LOCATION=https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/c2be3c4b-d773-43d8-b1bd-b94eab1e20a0?_state=ZYOlPQD...
+$ curl $LOCATION \
+      -X PATCH \
+      --data-binary @config.json \
+      -H "Content-Type: application/octet-stream" \
+      -H "Authorization: Bearer $TOKEN" \
+      -v
+...
+< Location: https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/c2be3c4b-d773-43d8-b1bd-b94eab1e20a0?_state=xsZ-rOO...
+...
+$ LOCATION=https://registry.hub.docker.com/v2/<username>/hello/blobs/uploads/c2be3c4b-d773-43d8-b1bd-b94eab1e20a0?_state=xsZ-rOO...
+$ curl "$LOCATION&digest=sha256:586acba684019cc55f34a06f0f86b1864033f4ec4a4757366dcf4a420543ed07" \
+      -X PUT \
+      -H "Authorization: Bearer $TOKEN" \
+      -v
+...
+< HTTP/1.1 201 Created
+...
 ```
+
+Now, we can push our manifest:
+
+```bash
+$ curl https://registry.hub.docker.com/v2/$USERNAME/hello/manifests/latest \
+      -X PUT \
+      --data-binary @manifest.json \
+      -H "Content-Type: application/vnd.docker.distribution.manifest.v2+json" \
+      -H "Authorization: Bearer $TOKEN" \
+      -v
+...
+< HTTP/1.1 201 Created
+...
+```
+
+{% hint style="success" %}
+Congrats! You've just built and pushed your own container image to a container registry! Now, you can try pulling and running your image:
+
+```bash
+$ docker pull $USERNAME/hello
+$ docker run $USERNAME/hello
+Hello World
+```
+{% endhint %}
 
 ## Making an efficient container builder
 

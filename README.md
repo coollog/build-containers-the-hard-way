@@ -169,9 +169,21 @@ You can also leverage multi-stage builds to take advantage of better caching, si
 
 ## **Container image format**
 
-Container images can be built in a few formats. Different run-times may support different formats. The most common formats are the _Docker image format_ and _Open Container Initiative \(OCI\) format_.
+Container images can be built in a few formats. Different runtimes may support different formats. The most common formats are the _Docker image format_ and [_Open Container Initiative \(OCI\) format_](https://github.com/opencontainers/image-spec).
 
-> TODO: Support for formats, like in Kubernetes \(CRI\)
+Some common runtimes include:
+
+* Docker itself, which uses [containerd](https://github.com/containerd/containerd) underneath
+* [rkt](https://github.com/rkt/rkt), which supports Docker and OCI images, and can be used in Kubernetes
+* Kubernetes also provides the [container runtime interface \(CRI\)](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-node/container-runtime-interface.md), which allows for different runtime implementations to be used, including [cri-o](https://github.com/kubernetes-sigs/cri-o), the [cri plugin for containerd](https://github.com/kubernetes-sigs/cri-o), and [rktlet](https://github.com/kubernetes-incubator/rktlet)
+
+There are also many tools for building images besides Docker:
+
+* [Kaniko](https://github.com/GoogleContainerTools/kaniko) builds images in Kubernetes using a Dockerfile
+* [rules\_docker](https://github.com/bazelbuild/rules_docker) provides Bazel rules for building images
+* [BuildKit](https://github.com/moby/buildkit) is the underlying engine used by Docker to build images
+* [img](https://github.com/genuinetools/img) provides a standalone frontend for BuildKit
+* [buildah](https://github.com/containers/buildah) builds OCI images
 
 ### Layers
 
@@ -249,6 +261,10 @@ Note that "tag" is a confusing term here since it refers to the full reference f
 
 `docker save` can also save images in a legacy Docker tarball archive format that `docker load` also supports. In this legacy format, each layer would be stored in its own directory named with its SHA256 hash \(digest of compressed layer tarball archive\). Each of these directories contains a `json` file with a legacy container configuration \(we won’t go into the details of this\), a `VERSION` file, and a `layer.tar` that is the uncompressed tarball archive of the layer contents.
 
+{% hint style="info" %}
+The reference for this format can be found in the Docker codebase: [https://github.com/moby/moby/blob/master/image/spec/v1.2.md](https://github.com/moby/moby/blob/master/image/spec/v1.2.md)
+{% endhint %}
+
 #### **Registry format - Docker Image Manifest V 2, Schema 2**
 
 Registry image manifests define the components that make up an image on a container registry \(see section on container registries\). The more common manifest format we’ll be working with is the _Docker Image Manifest V2, Schema 2_ \(more simply, _V2.2_\). There is also a _V2, Schema 1_ format that is commonly used but more complicated than V2.2 due to backwards-compatibility reasons against V1.
@@ -298,6 +314,10 @@ This manifest states that the `busybox` image is composed of a container configu
 It is important to make sure that the digest used in the descriptor for a layer is the digest of the **compressed** archive, whereas the digest used for the diff ID in the `rootfs` of the container configuration is the digest of the same archive but **uncompressed**. Otherwise, container registries may give you a cryptic `MANIFEST_INVALID` error.
 {% endhint %}
 
+{% hint style="info" %}
+The reference for this format can be found in the Docker documentation: [https://docs.docker.com/registry/spec/manifest-v2-2/](https://docs.docker.com/registry/spec/manifest-v2-2/)
+{% endhint %}
+
 #### **Registry format - OCI Image Manifest**
 
 The OCI image manifest is also a registry image manifest that defines components that make up an image. The format is essentially the same as the Docker V2.2 format, with a few differences.
@@ -310,6 +330,10 @@ Each object in `layers` must have `mediaType` be either `application/vnd.oci.ima
 
 {% hint style="info" %}
 OCI also allows for layer blobs to be not compressed with GZIP with the `application/vnd.oci.image.layer.v1.tar` `mediaType`.
+{% endhint %}
+
+{% hint style="info" %}
+The reference for this format can be found in the OCI codebase: [https://github.com/opencontainers/image-spec/blob/master/manifest.md](https://github.com/opencontainers/image-spec/blob/master/manifest.md)
 {% endhint %}
 
 #### **Manifest List/Image Index**

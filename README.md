@@ -179,6 +179,7 @@ Some common runtimes include:
 
 There are also many tools for building images besides Docker:
 
+* [Jib](https://github.com/GoogleContainerTools/jib) builds Docker and OCI images in Java
 * [Kaniko](https://github.com/GoogleContainerTools/kaniko) builds images in Kubernetes using a Dockerfile
 * [rules\_docker](https://github.com/bazelbuild/rules_docker) provides Bazel rules for building images
 * [BuildKit](https://github.com/moby/buildkit) is the underlying engine used by Docker to build images

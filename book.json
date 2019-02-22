@@ -1,0 +1,13 @@
+{
+	"title": "Build Containers the Hard Way",
+	"author": "Qingyang Chen",
+	"plugins": [
+		"hints",
+		"autocover"
+	],
+	"pluginsConfig": {
+		"autocover": {
+
+		}
+	}
+}

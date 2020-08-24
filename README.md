@@ -18,7 +18,7 @@ A _container_ is a way of executing processes with isolation provided by 3 Linux
 
 The combination of these allows processes to run in isolation from other processes both on the file system level and on the resource utilization level. Processes inside a container do not see other processes in other containers. Rather, they only see their own view of the system that is not cluttered other processes.
 
-A _container image_ a way to package up an application so that it can run as a _container_. This package includes the application and any run-time dependencies and is simply a directory of files along with metadata about how to run the container.
+A _container image_ is a way to package up an application so that it can run as a _container_. This package includes the application and any run-time dependencies and is simply a directory of files along with metadata about how to run the container.
 
 {% hint style="success" %}
 A _container image_ is simply a directory of files along with metadata about how to run the container.

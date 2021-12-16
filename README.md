@@ -730,7 +730,8 @@ $ curl https://registry.hub.docker.com/v2/library/busybox/manifests/latest \
 Great, now let's fetch the container configuration:
 
 ```bash
-$ curl https://registry.hub.docker.com/v2/library/busybox/blobs/sha256:d8233ab8... \
+$ curl https://registry.hub.docker.com/v2/library/busybox/manifests/latest \
+       -H "Accept: application/vnd.docker.container.image.v1+json"
        -H "Authorization: Bearer $TOKEN" \
        -L \
        -o config.json
